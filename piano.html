@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Piano Intonation Systems</title>
+<style>
+  body {
+    font-family: sans-serif;
+    background:#222; color:#eee;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    height:100vh; margin:0;
+  }
+  input[type="text"] {
+    font-size: 1.25em;
+    /* padding: 10px; */
+    width: 150px;
+    text-align: center;
+  }
+  button {
+    font-size: 1.25em;
+    /* padding: 10px 20px; */
+    margin-left: 10px;
+    cursor: pointer;
+  }
+  .row {
+    display: flex;
+    align-items:center;
+    gap: 20px;
+  }
+  .controls { margin:10px; }
+  .keyboard { position:relative; display:flex; }
+  .key.white {
+    width:60px; height:220px; margin:1px;
+    background:#fff; border:1px solid #000; border-radius:0 0 6px 6px;
+    display:flex; justify-content:center; align-items:flex-end; font-size:12px;
+    cursor:pointer; user-select:none; color:#000;
+  }
+  .key.white.pressed { background:#ddd; }
+  .key.black {
+    position:absolute; width:40px; height:140px;
+    background:#000; border-radius:0 0 4px 4px; color:#eee;
+    margin-left:-20px; z-index:2; cursor:pointer; user-select:none;
+    display:flex; justify-content:center; align-items:flex-end; font-size:12px;
+  }
+  .key.black.pressed { background:#444; }
+  .image-container {
+    position: relative;
+    width: 100%;
+    max-width: 800px; /* optional: limit width to match piano controls */
+    margin-top: 20px;
+  }
+  .image-container img {
+    width: 100%;
+    display: block;
+  }
+  .overlay {
+    position: absolute;
+    top: 0%;   /* adjust position */
+    left: 6%;  /* adjust position */
+    width: 0%; /* rectangle width */
+    height: 100%;/* rectangle height */
+    background: rgba(255,255,0,0.4); /* semi-transparent yellow */
+  }
+
+</style>
+</head>
+<body>
+<div class="row">
+<div class="controls">
+Frequency (Hz): <br><br>
+<input type="text" id="frequencyInput" placeholder="Enter frequency">
+<button id="frequencyStart">Start</button>
+<button id="frequencyStop">Stop</button>
+</div>
+<div class="controls">
+  Waveform:
+  <select id="wave">
+    <option>sine</option>
+    <option>triangle</option>
+    <option>sawtooth</option>
+    <option>square</option>
+  </select>
+  <br><br>
+  Intonation System:
+  <select id="temperament">
+    <option value="equal">Equal temperament</option>
+    <option value="just">Just intonation</option>
+    <option value="meantone">Meantone temperament</option>
+    <option value="pythagorean">Pythagorean intonation</option>
+  </select>
+  
+</div>
+</div>
+
+<div class="row">
+<div class="keyboard" id="keyboard"></div>
+
+<div class="controls" id="overtones">
+  Volume:
+  <input type="range" id="gainSel" min="0" max=".5" step="0.01" value=".25"> <br><br>
+  Overtones:<br>
+  1f: <input type="range" id="f1" min="0" max="1" step="0.01" value="1"><br>
+  2f: <input type="range" id="f2" min="0" max="1" step="0.01" value=".5"><br>
+  3f: <input type="range" id="f3" min="0" max="1" step="0.01" value=".33"><br>
+  4f: <input type="range" id="f4" min="0" max="1" step="0.01" value=".25"><br>
+  5f: <input type="range" id="f5" min="0" max="1" step="0.01" value=".2"><br>
+  6f: <input type="range" id="f6" min="0" max="1" step="0.01" value=".17"><br>
+  7f: <input type="range" id="f7" min="0" max="1" step="0.01" value=".15"><br>
+  8f: <input type="range" id="f8" min="0" max="1" step="0.01" value=".13"><br>
+</div>
+</div>
+<div class="image-container">
+  <img src="chorale.jpg" alt="Background">
+  <div class="overlay"></div>
+</div>
+
+<script>
+const AudioContext = window.AudioContext||window.webkitAudioContext;
+const ctx = new AudioContext();
+const baseFreq = 261.63; // C4
+const keyMap = ['z','s','x','d','c','v','g','b','h','n','j','m',',','q','w','e','r','t','y','u','i','o'];
+const noteNames = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B','C']
+const whiteNotes = [0,2,4,5,7,9,11,12]; // semitones for C D E F G A B C
+const blackNotes = [1,3,6,8,10];     // sharps
+const keyboard = document.getElementById('keyboard');
+let frequencies = [];
+
+document.getElementById("frequencyStart").addEventListener("click", function() {
+  const box = document.getElementById("frequencyInput");
+  const num = parseFloat(box.value, 10);
+
+  if (isNaN(num)) {
+    alert("Please enter a valid number.");
+    return;
+  }
+
+  start(num,'frequency');
+  frequencies.push(num);
+});
+
+document.getElementById("frequencyStop").addEventListener("click", function() {
+  if (frequencies.length > 0) {
+    stop(frequencies.shift(),'frequency');
+  }
+});
+
+// build white keys
+whiteNotes.forEach(offset=>{
+  const div=document.createElement('div');
+  div.className='key white';
+  div.dataset.offset=offset;
+  div.innerHTML = `<div class="key-label">
+    <div style="font-size:11px">${keyMap[offset].toUpperCase()}</div>
+    <div style="font-size:16px; font-weight:bold">${noteNames[offset]}</div>
+  </div>`;
+  keyboard.appendChild(div);
+});
+// overlay black keys
+const whiteOrder=[0,2,4,5,7,9,11,12];
+blackNotes.forEach(offset=>{
+  const idx=whiteOrder.findIndex(w=>w>offset)-1;
+  const left=(idx+1)*62;
+  const div=document.createElement('div');
+  div.className='key black';
+  div.dataset.offset=offset;
+  div.style.left=left+'px';
+  div.innerHTML = `<div class="key-label">
+    <div style="font-size:11px">${keyMap[offset].toUpperCase()}</div>
+    <div style="font-size:16px; font-weight:bold">${noteNames[offset]}</div>
+  </div>`;
+  keyboard.appendChild(div);
+});
+
+function octave(o) {
+  let q = Math.floor(o / 12);
+  let r = o - 12 * q;
+  if (r < 0) {
+    r += 12;
+    q -= 1;
+  }
+  return { quotient: q, remainder: r };
+}
+
+function freq(offset, temperament){
+  // const temperament=document.getElementById('temperament').value;
+  const {quotient, remainder} = octave(offset);
+  switch (temperament) {
+    case 'equal':
+      return baseFreq*Math.pow(2,offset/12); 
+    case 'meantone':
+      const meantoneRatios = [1, 1.070, 1.118, 1.196, 1.250, 1.337, 1.398, 1.495, 1.600, 1.672, 1.789, 1.869, 2.000];
+      return baseFreq*meantoneRatios[remainder]*Math.pow(2,quotient);
+    case 'just':
+      const justRatios = [1,1.042, 1.125, 1.200, 1.250, 1.333, 1.406, 1.500, 1.600, 1.667, 1.800, 1.875, 2.000];
+      return baseFreq*justRatios[remainder]*Math.pow(2,quotient);
+    case 'pythagorean':
+      const pythRatios = [1, 1.053497942, 1.125, 1.185185185, 1.265625, 1.333333333, 1.423828125, 1.5, 1.580246914, 1.6875, 1.777777778, 1.8984375, 2.0];
+      return baseFreq*pythRatios[remainder]*Math.pow(2,quotient);
+    case 'frequency':
+      return offset; // In this case "offset" is the raw frequency and not an actual offset
+  }
+}
+
+const active=new Map();
+const waveSel=document.getElementById('wave');
+const gainSel=document.getElementById('gainSel');
+const ATTACK=0.01, RELEASE=0.25;
+const overtoneIDs = ['f1','f2','f3','f4','f5','f6','f7','f8'];
+
+function start(o, temperament){
+  if(active.has(o)) return;
+  if(ctx.state==='suspended') ctx.resume();
+  g=ctx.createGain();
+  const overtoneAmps = overtoneIDs.map(id => Number(document.getElementById(id).value));
+  const master=parseFloat(gainSel.value);
+  g.gain.setValueAtTime(0,ctx.currentTime);
+  g.gain.linearRampToValueAtTime(master,ctx.currentTime+ATTACK);
+
+  const oscillators = [];
+  for (const [i, relGain] of overtoneAmps.entries()) {
+    const osc = ctx.createOscillator();
+    osc.type = waveSel.value;
+    osc.frequency.value = (i+1) * freq(o, temperament);
+    const og = ctx.createGain();
+    og.gain.value = relGain;
+    osc.connect(og).connect(g);
+    osc.start();
+    oscillators.push({osc,og});
+  }
+  g.connect(ctx.destination);
+  active.set(o,{oscillators,g});
+  press(o,true);
+}
+function stop(o) {
+  const n = active.get(o);
+  if (!n) return;
+
+  const t = ctx.currentTime;
+
+  // Release envelope on the master gain
+  n.g.gain.cancelScheduledValues(t);
+  n.g.gain.setValueAtTime(n.g.gain.value, t);
+  n.g.gain.linearRampToValueAtTime(0, t + RELEASE);
+
+  // Stop all oscillators after release
+  n.oscillators.forEach(({ osc }) => {
+    osc.stop(t + RELEASE + 0.02);
+  });
+
+  // Disconnect after everything has stopped
+  setTimeout(() => {
+    try {
+      n.oscillators.forEach(({ osc, og }) => {
+        osc.disconnect();
+        og.disconnect();
+      });
+      n.g.disconnect();
+    } catch (e) {}
+  }, (RELEASE + 0.1) * 1000);
+
+  active.delete(o);
+  press(o, false);
+}
+
+function press(o,on){
+  document.querySelectorAll(`.key[data-offset="${o}"]`)
+    .forEach(el=>el.classList.toggle('pressed',on));
+}
+
+// mouse
+keyboard.addEventListener('mousedown',e=>{
+  if(!e.target.classList.contains('key')) return;
+  const temperament=document.getElementById('temperament').value;
+  start(+e.target.dataset.offset, temperament);
+});
+keyboard.addEventListener('mouseup',e=>{
+  if(!e.target.classList.contains('key')) return;
+  stop(+e.target.dataset.offset);
+});
+
+// keyboard
+const keysDown=new Set();
+const chordsDown=new Set();
+window.addEventListener('keydown',e=>{
+  const i=keyMap.indexOf(e.key); 
+  const temperament=document.getElementById('temperament').value;
+  if(0<=i && i<=12 && !keysDown.has(e.key)){ 
+    keysDown.add(e.key); 
+    start(i,temperament); 
+  }
+  if(i>=13 && !chordsDown.has(e.key)){
+    chordsDown.add(e.key);
+    const overlay = document.querySelector(".overlay");
+    switch (i) {
+      case 13:
+        start(-12,temperament);start(-5,temperament);start(0,temperament);start(4,temperament);
+        overlay.style.left = '6%';
+        overlay.style.width = '9%';
+        break;
+      case 14:
+        start(-8,temperament);start(-2,temperament);start(0,temperament);start(7,temperament);
+        overlay.style.left = '16%';
+        overlay.style.width = '9%';
+        break;
+      case 15:
+        start(-7,temperament);start(-3,temperament);start(0,temperament);start(5,temperament);
+        overlay.style.left = '27%';
+        overlay.style.width = '9%';
+        break;
+      case 16:
+        start(-10,temperament);start(-3,temperament);start(2,temperament);start(5,temperament);
+        overlay.style.left = '38%';
+        overlay.style.width = '9%';
+        break;
+      case 17:
+        start(-3,temperament);start(0,temperament);start(4,temperament);start(9,temperament);
+        overlay.style.left = '48%';
+        overlay.style.width = '9%';
+        break;
+      case 18:
+        start(-6,temperament);start(-3,temperament);start(3,temperament);start(12,temperament);
+        overlay.style.left = '59%';
+        overlay.style.width = '9%';
+        break;
+      case 19:
+        start(-5,temperament);start(2,temperament);start(11,temperament);
+        overlay.style.left = '69.5%';
+        overlay.style.width = '9%';
+        break;
+      case 20:
+        start(-17,temperament);start(-5,temperament);start(5,temperament);start(11,temperament);
+        overlay.style.left = '80%';
+        overlay.style.width = '9%';
+        break;
+      case 21:
+        start(-12,temperament);start(-5,temperament);start(4,temperament);start(12,temperament);
+        overlay.style.left = '89%';
+        overlay.style.width = '9%';
+        break;
+    }
+  }
+});
+window.addEventListener('keyup',e=>{
+  const i=keyMap.indexOf(e.key); 
+  if(0<=i && i<=12){ 
+    keysDown.delete(e.key); 
+    stop(i); 
+  }
+  if(12<=i){
+    const overlay = document.querySelector(".overlay");
+    overlay.style.width = '0%';
+    chordsDown.delete(e.key);
+    switch (i) {
+      case 13:
+        stop(-12);stop(-5);stop(0);stop(4);
+        break;
+      case 14:
+        stop(-8);stop(-2);stop(0);stop(7);
+        break;
+      case 15:
+        stop(-7);stop(-3);stop(0);stop(5);
+        break;
+      case 16:
+        stop(-10);stop(-3);stop(2);stop(5);
+        break;
+      case 17:
+        stop(-3);stop(0);stop(4);stop(9);
+        break;
+      case 18:
+        stop(-6);stop(-3);stop(3);stop(12);
+        break;
+      case 19:
+        stop(-5);stop(2);stop(11);
+        break;
+      case 20:
+        stop(-17);stop(-5);stop(5);stop(11);
+        break;
+      case 21:
+        stop(-12);stop(-5);stop(4);stop(12);
+        break;
+    }
+  }
+});
+
+// update existing oscillators on control changes
+waveSel.addEventListener('change',()=>{
+  active.forEach(({osc})=>{ osc.type=waveSel.value; });
+});
+gainSel.addEventListener('change',()=>{
+  const master=parseFloat(gainSel.value);
+  active.forEach(({g})=>{
+    const t=ctx.currentTime;
+    g.gain.cancelScheduledValues(t);
+    g.gain.setValueAtTime(g.gain.value,t);
+    g.gain.linearRampToValueAtTime(master,t+0.05);
+  });
+});
+
+</script>
+</body>
+</html>
