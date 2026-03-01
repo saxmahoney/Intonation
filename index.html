@@ -28,7 +28,12 @@
     gap: 20px;
   }
   .controls { margin:10px; }
-  .keyboard { position:relative; display:flex; }
+  .keyboard { 
+    position: relative; 
+    display: flex; 
+    min-width: 930px; /* Adjust to fit 15 white keys */
+    margin-bottom: 20px;
+  }
   .key.white {
     width:60px; height:220px; margin:1px;
     background:#fff; border:1px solid #000; border-radius:0 0 6px 6px;
@@ -144,32 +149,47 @@ document.getElementById("frequencyStop").addEventListener("click", function() {
   }
 });
 
-// build white keys
-whiteNotes.forEach(offset=>{
-  const div=document.createElement('div');
-  div.className='key white';
-  div.dataset.offset=offset;
-  div.innerHTML = `<div class="key-label">
-    <div style="font-size:11px">${keyMap[offset].toUpperCase()}</div>
-    <div style="font-size:16px; font-weight:bold">${noteNames[offset]}</div>
-  </div>`;
-  keyboard.appendChild(div);
-});
-// overlay black keys
-const whiteOrder=[0,2,4,5,7,9,11,12];
-blackNotes.forEach(offset=>{
-  const idx=whiteOrder.findIndex(w=>w>offset)-1;
-  const left=(idx+1)*62;
-  const div=document.createElement('div');
-  div.className='key black';
-  div.dataset.offset=offset;
-  div.style.left=left+'px';
-  div.innerHTML = `<div class="key-label">
-    <div style="font-size:11px">${keyMap[offset].toUpperCase()}</div>
-    <div style="font-size:16px; font-weight:bold">${noteNames[offset]}</div>
-  </div>`;
-  keyboard.appendChild(div);
-});
+// Clear existing keyboard if any
+keyboard.innerHTML = '';
+
+const totalSemitones = 25; // 2 octaves + top C
+const whiteOrder = [0, 2, 4, 5, 7, 9, 11]; // Pattern for one octave
+
+// Build all keys from offset -12 (C3) to +12 (C5)
+for (let offset = -12; offset <= 12; offset++) {
+  const { quotient, remainder } = octave(offset);
+  const isWhite = whiteOrder.includes(remainder);
+  
+  const div = document.createElement('div');
+  div.dataset.offset = offset;
+  
+  if (isWhite) {
+    div.className = 'key white';
+    // Calculate label: only show QWERTY labels for upper octave (0 to 12)
+    const label = (offset >= 0 && offset <= 12) ? keyMap[offset].toUpperCase() : '';
+    div.innerHTML = `
+      <div class="key-label">
+        <div style="font-size:11px">${label}</div>
+        <div style="font-size:16px; font-weight:bold">${noteNames[remainder]}</div>
+      </div>`;
+    keyboard.appendChild(div);
+  } else {
+    div.className = 'key black';
+    const label = (offset >= 0 && offset <= 12) ? keyMap[offset].toUpperCase() : '';
+    // Positioning logic: find the number of white keys to the left
+    let whiteKeysToLeft = 0;
+    for (let i = -12; i < offset; i++) {
+      if (whiteOrder.includes(octave(i).remainder)) whiteKeysToLeft++;
+    }
+    div.style.left = (whiteKeysToLeft * 62) + 'px';
+    div.innerHTML = `
+      <div class="key-label">
+        <div style="font-size:11px">${label}</div>
+        <div style="font-size:16px; font-weight:bold">${noteNames[remainder]}</div>
+      </div>`;
+    keyboard.appendChild(div);
+  }
+}
 
 function octave(o) {
   let q = Math.floor(o / 12);
@@ -395,6 +415,73 @@ gainSel.addEventListener('change',()=>{
     g.gain.linearRampToValueAtTime(master,t+0.05);
   });
 });
+
+// --- MIDI Integration ---
+if (navigator.requestMIDIAccess) {
+  navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
+} else {
+  console.error("Web MIDI API not supported in this browser.");
+}
+
+function onMIDISuccess(midiAccess) {
+  const inputs = midiAccess.inputs.values();
+  for (let input of inputs) {
+    input.onmidimessage = getMIDIMessage;
+  }
+}
+
+function onMIDIFailure() {
+  console.error("Could not access your MIDI devices.");
+}
+
+function getMIDIMessage(message) {
+  const command = message.data[0];
+  const note = message.data[1];
+  const velocity = (message.data.length > 2) ? message.data[2] : 0;
+
+  // Map MIDI note to your existing offset (MIDI 60 = C4 = offset 0)
+  const offset = note - 60;
+  const temperament = document.getElementById('temperament').value;
+
+  switch (command) {
+    case 144: // Note On
+      if (velocity > 0) {
+        start(offset, temperament);
+      } else {
+        stop(offset);
+      }
+      break;
+    case 128: // Note Off
+      stop(offset);
+      break;
+  }
+}
+
+function getMIDIMessage(message) {
+  const command = message.data[0];
+  const note = message.data[1];
+  const velocity = (message.data.length > 2) ? message.data[2] : 0;
+
+  // Map MIDI note to your existing offset (MIDI 60 = C4 = offset 0)
+  const offset = note - 60;
+  const temperament = document.getElementById('temperament').value;
+
+  switch (command) {
+    case 144: // Note On
+      if (velocity > 0) {
+        start(offset, temperament);
+        press(offset, true); // Highlights the key visually
+      } else {
+        stop(offset);
+        press(offset, false); // Removes highlight (some keyboards use velocity 0 for Note Off)
+      }
+      break;
+    case 128: // Note Off
+      stop(offset);
+      press(offset, false); // Removes highlight
+      break;
+  }
+}
 
 </script>
 </body>
