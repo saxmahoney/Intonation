@@ -8,27 +8,53 @@
   body {
     font-family: sans-serif;
     background:#222; color:#eee;
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    display:flex; flex-direction:column; align-items:center;
     min-height:100vh; margin:0;
-    padding: 20px;
+    padding: 30px 20px;
   }
-  input[type="text"] {
-    font-size: 1.25em;
-    width: 150px;
-    text-align: center;
-  }
-  button {
-    font-size: 1.25em;
-    margin-left: 10px;
-    cursor: pointer;
-  }
-  .row {
+  
+  /* --- New Dashboard Layout --- */
+  .dashboard {
     display: flex;
-    align-items:center;
-    gap: 20px;
-    margin-bottom: 20px;
+    justify-content: space-between;
+    width: 100%;
+    max-width: 930px; /* Matches the 15 white keys (15 * 60 = 900 + padding) */
+    background: #333;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 30px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
   }
-  .controls { margin:10px; }
+  .panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+    padding: 0 20px;
+  }
+  .panel:not(:last-child) {
+    border-right: 1px solid #555;
+  }
+  .panel h3 { margin: 0; font-size: 1.1em; color: #aaa; text-transform: uppercase; }
+  
+  /* --- Form Controls --- */
+  input[type="text"] { font-size: 1em; width: 100%; padding: 6px; text-align: center; }
+  select, button { font-size: 1em; padding: 6px; cursor: pointer; width: 100%; }
+  .btn-group { display: flex; gap: 10px; }
+  .btn-group button { flex: 1; margin: 0; }
+  
+  .slider-group { display: flex; align-items: center; gap: 8px; font-size: 0.9em; }
+  .slider-group input { flex: 1; }
+  
+  /* Grid for Overtone Sliders */
+  .overtone-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 15px;
+    row-gap: 6px;
+  }
+
+  /* --- Keyboard (Unchanged Math) --- */
   .keyboard { 
     position:relative; 
     display:flex; 
@@ -56,11 +82,12 @@
   .key.black.pressed { background:#444; }
   .key-label { pointer-events: none; padding-bottom: 10px; text-align: center; }
   
+  /* --- Chorale Image --- */
   .image-container {
     position: relative;
     width: 100%;
     max-width: 800px;
-    margin-top: 20px;
+    margin-top: 10px;
   }
   .image-container img {
     width: 100%;
@@ -78,51 +105,63 @@
 </head>
 <body>
 
-<div class="row">
-  <div class="controls">
-    Frequency (Hz): <br><br>
-    <input type="text" id="frequencyInput" placeholder="Enter frequency">
-    <button id="frequencyStart">Start</button>
-    <button id="frequencyStop">Stop</button>
+<div class="dashboard">
+  <div class="panel">
+    <h3>Manual Test</h3>
+    <input type="text" id="frequencyInput" placeholder="Enter frequency (Hz)">
+    <div class="btn-group">
+      <button id="frequencyStart">Start</button>
+      <button id="frequencyStop">Stop</button>
+    </div>
   </div>
-  <div class="controls">
-    Waveform:
+
+  <div class="panel">
+    <h3>Settings</h3>
     <select id="wave">
-      <option>sine</option>
-      <option>triangle</option>
-      <option>sawtooth</option>
-      <option>square</option>
+      <option value="sine">Sine Wave</option>
+      <option value="triangle">Triangle Wave</option>
+      <option value="sawtooth">Sawtooth Wave</option>
+      <option value="square">Square Wave</option>
     </select>
-    <br><br>
-    Intonation System:
     <select id="temperament">
-      <option value="equal">Equal temperament</option>
-      <option value="just">Just intonation</option>
-      <option value="meantone">Meantone temperament</option>
-      <option value="pythagorean">Pythagorean intonation</option>
+      <option value="equal">Equal Temperament</option>
+      <option value="just">Just Intonation</option>
+      <option value="meantone">Meantone Temperament</option>
+      <option value="pythagorean">Pythagorean Intonation</option>
     </select>
+    <button id="toggleChorale">Hide Chorale Image</button>
+  </div>
+
+  <div class="panel">
+    <h3>Harmonic Mix</h3>
+    <div class="slider-group">
+      <label>Vol:</label>
+      <input type="range" id="gainSel" min="0" max=".5" step="0.01" value=".25">
+    </div>
+    <select id="presetSelect">
+      <option value="default">Default Mix</option>
+      <option value="pure">Pure (1f only)</option>
+      <option value="clarinet">Clarinet (Odd harmonics)</option>
+      <option value="organ">Drawbar Organ</option>
+      <option value="custom">Custom</option>
+    </select>
+    
+    <div class="overtone-grid">
+      <div class="slider-group"><label>1f:</label> <input type="range" id="f1" min="0" max="1" step="0.01" value="1"></div>
+      <div class="slider-group"><label>5f:</label> <input type="range" id="f5" min="0" max="1" step="0.01" value=".2"></div>
+      <div class="slider-group"><label>2f:</label> <input type="range" id="f2" min="0" max="1" step="0.01" value=".5"></div>
+      <div class="slider-group"><label>6f:</label> <input type="range" id="f6" min="0" max="1" step="0.01" value=".17"></div>
+      <div class="slider-group"><label>3f:</label> <input type="range" id="f3" min="0" max="1" step="0.01" value=".33"></div>
+      <div class="slider-group"><label>7f:</label> <input type="range" id="f7" min="0" max="1" step="0.01" value=".15"></div>
+      <div class="slider-group"><label>4f:</label> <input type="range" id="f4" min="0" max="1" step="0.01" value=".25"></div>
+      <div class="slider-group"><label>8f:</label> <input type="range" id="f8" min="0" max="1" step="0.01" value=".13"></div>
+    </div>
   </div>
 </div>
 
-<div class="row">
-  <div id="keyboard" class="keyboard"></div>
+<div id="keyboard" class="keyboard"></div>
 
-  <div class="controls" id="overtones">
-    Volume:
-    <input type="range" id="gainSel" min="0" max=".5" step="0.01" value=".25"> <br><br>
-    Overtones:<br>
-    1f: <input type="range" id="f1" min="0" max="1" step="0.01" value="1"><br>
-    2f: <input type="range" id="f2" min="0" max="1" step="0.01" value=".5"><br>
-    3f: <input type="range" id="f3" min="0" max="1" step="0.01" value=".33"><br>
-    4f: <input type="range" id="f4" min="0" max="1" step="0.01" value=".25"><br>
-    5f: <input type="range" id="f5" min="0" max="1" step="0.01" value=".2"><br>
-    6f: <input type="range" id="f6" min="0" max="1" step="0.01" value=".17"><br>
-    7f: <input type="range" id="f7" min="0" max="1" step="0.01" value=".15"><br>
-    8f: <input type="range" id="f8" min="0" max="1" step="0.01" value=".13"><br>
-  </div>
-</div>
-
-<div class="image-container">
+<div class="image-container" id="choraleContainer">
   <img src="chorale.jpg" alt="Background">
   <div class="overlay"></div>
 </div>
@@ -325,6 +364,8 @@ function getMIDIMessage(message) {
   else if (cmd === 128 || (cmd === 144 && vel === 0)) stop(offset);
 }
 
+// --- UI INTERACTIONS ---
+
 // Frequency Box
 document.getElementById("frequencyStart").addEventListener("click", () => {
   const num = parseFloat(document.getElementById("frequencyInput").value);
@@ -332,6 +373,43 @@ document.getElementById("frequencyStart").addEventListener("click", () => {
 });
 document.getElementById("frequencyStop").addEventListener("click", () => {
   if (frequencies.length > 0) stop(frequencies.shift());
+});
+
+// Toggle Chorale
+const choraleBtn = document.getElementById('toggleChorale');
+const choraleContainer = document.getElementById('choraleContainer');
+choraleBtn.addEventListener('click', () => {
+  if (choraleContainer.style.display === 'none') {
+    choraleContainer.style.display = 'block';
+    choraleBtn.textContent = 'Hide Chorale Image';
+  } else {
+    choraleContainer.style.display = 'none';
+    choraleBtn.textContent = 'Show Chorale Image';
+  }
+});
+
+// Overtone Presets
+const presetValues = {
+  default: [1, 0.5, 0.33, 0.25, 0.2, 0.17, 0.15, 0.13],
+  pure: [1, 0, 0, 0, 0, 0, 0, 0],
+  clarinet: [1, 0, 0.5, 0, 0.25, 0, 0.1, 0], // Focus on odd harmonics
+  organ: [1, 0.8, 0.6, 0.8, 0.4, 0.3, 0.2, 0.5] // Rich, heavier on octaves and fifths
+};
+
+const presetSelect = document.getElementById('presetSelect');
+presetSelect.addEventListener('change', (e) => {
+  if (e.target.value === 'custom') return;
+  const vals = presetValues[e.target.value];
+  overtoneIDs.forEach((id, index) => {
+    document.getElementById(id).value = vals[index];
+  });
+});
+
+// Auto-switch to "Custom" if a slider is moved manually
+overtoneIDs.forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    presetSelect.value = 'custom';
+  });
 });
 
 // Init
