@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Piano Intonation Systems - 2 Octave MIDI</title>
+<title>Intonation and Overtones</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -13,12 +13,11 @@
     padding: 30px 20px;
   }
   
-  /* --- New Dashboard Layout --- */
   .dashboard {
     display: flex;
     justify-content: space-between;
     width: 100%;
-    max-width: 930px; /* Matches the 15 white keys (15 * 60 = 900 + padding) */
+    max-width: 930px; 
     background: #333;
     padding: 20px;
     border-radius: 8px;
@@ -37,7 +36,6 @@
   }
   .panel h3 { margin: 0; font-size: 1.1em; color: #aaa; text-transform: uppercase; }
   
-  /* --- Form Controls --- */
   input[type="text"] { font-size: 1em; width: 100%; padding: 6px; text-align: center; }
   select, button { font-size: 1em; padding: 6px; cursor: pointer; width: 100%; }
   .btn-group { display: flex; gap: 10px; }
@@ -46,7 +44,6 @@
   .slider-group { display: flex; align-items: center; gap: 8px; font-size: 0.9em; }
   .slider-group input { flex: 1; }
   
-  /* Grid for Overtone Sliders */
   .overtone-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -54,7 +51,6 @@
     row-gap: 6px;
   }
 
-  /* --- Keyboard (Unchanged Math) --- */
   .keyboard { 
     position:relative; 
     display:flex; 
@@ -82,7 +78,6 @@
   .key.black.pressed { background:#444; }
   .key-label { pointer-events: none; padding-bottom: 10px; text-align: center; }
   
-  /* --- Chorale Image --- */
   .image-container {
     position: relative;
     width: 100%;
@@ -104,6 +99,8 @@
 </style>
 </head>
 <body>
+
+<div id="keyboard" class="keyboard"></div>
 
 <div class="dashboard">
   <div class="panel">
@@ -129,7 +126,8 @@
       <option value="meantone">Meantone Temperament</option>
       <option value="pythagorean">Pythagorean Intonation</option>
     </select>
-    <button id="toggleChorale">Hide Chorale Image</button>
+    <button id="toggleChorale">Show Chorale Image</button>
+    <button id="toggleThirdContainer">Show Major Third Slider</button>
   </div>
 
   <div class="panel">
@@ -143,6 +141,7 @@
       <option value="pure">Pure (1f only)</option>
       <option value="clarinet">Clarinet (Odd harmonics)</option>
       <option value="organ">Drawbar Organ</option>
+      <option value="phantom">Phantom Fundamental</option>
       <option value="custom">Custom</option>
     </select>
     
@@ -159,11 +158,30 @@
   </div>
 </div>
 
-<div id="keyboard" class="keyboard"></div>
-
-<div class="image-container" id="choraleContainer">
+<div class="image-container" id="choraleContainer" style="display: none;">
   <img src="chorale.jpg" alt="Background">
   <div class="overlay"></div>
+</div>
+
+<div id="thirdContainer" class="panel" style="width: 100%; max-width: 930px; margin: 20px auto; background: #333; padding: 20px; border-radius: 8px; box-sizing: border-box; display: none;">
+  <h3>Where's the 3rd?</h3>
+  <div id="ratioDisplay" style="font-family: monospace; color: #44ff44; font-size: 2.2em; display: none;">Ratio: 1.2500</div>
+  <div style="position: relative; width: 100%; height: 25px; margin-bottom: 5px;">
+    <div id="markers" style="position: absolute; width: calc(100% - 70px); left: 35px; height: 100%; display: none"></div>
+  </div>
+
+  <div class="slider-group" style="display: flex; align-items: center; gap: 15px; width: 100%;">
+    <span>Eb4</span>
+    <input type="range" id="dynamicSlider" min="0" max="1" step="0.0001" value="0.5" style="flex-grow: 1;">
+    <span>F4</span>
+  </div>
+  
+  <div class="btn-group" style="margin-top: 15px; display: flex; gap: 10px;">
+    <button id="dynamicToggle">Play Trio</button>
+    <button id="nudgeDown">-1 Cent</button>
+    <button id="nudgeUp">+1 Cent</button>
+    <button id="toggleMarkers">Show Markers</button>
+  </div>
 </div>
 
 <script>
@@ -176,7 +194,14 @@ const keyboard = document.getElementById('keyboard');
 const active = new Map();
 const keysDown = new Set();
 const chordsDown = new Set();
-let frequencies = [];
+let manualFrequencies = [];
+
+// --- CONSTANTS FOR TRIO ---
+const LOW_LIMIT = baseFreq * 1.185185185; // Pyth Eb4
+const HIGH_LIMIT = baseFreq * 1.337;      // Meantone F4
+const FIXED_C = baseFreq;
+const FIXED_G = baseFreq * 1.5;           // Just G
+const CENT_RATIO = Math.pow(2, 1/1200);   // 1 Cent ratio
 
 // --- KEYBOARD GENERATION ---
 function octave(o) {
@@ -189,8 +214,6 @@ function octave(o) {
 function createKeyboard() {
   keyboard.innerHTML = '';
   const whiteOrder = [0, 2, 4, 5, 7, 9, 11];
-
-  // 1. Create White Keys
   for (let offset = -12; offset <= 12; offset++) {
     const { remainder } = octave(offset);
     if (whiteOrder.includes(remainder)) {
@@ -202,16 +225,12 @@ function createKeyboard() {
       keyboard.appendChild(div);
     }
   }
-
-  // 2. Create Black Keys with Dynamic Positioning
   const whiteKeyElements = document.querySelectorAll('.key.white');
   const whiteKeyWidth = whiteKeyElements[0].getBoundingClientRect().width;
   let whiteKeyIndex = 0;
-
   for (let offset = -12; offset <= 11; offset++) {
     const { remainder } = octave(offset);
-    const isWhite = whiteOrder.includes(remainder);
-    if (isWhite) {
+    if (whiteOrder.includes(remainder)) {
       whiteKeyIndex++;
     } else {
       const div = document.createElement('div');
@@ -255,7 +274,6 @@ function start(o, temperament){
   const master = parseFloat(document.getElementById('gainSel').value);
   g.gain.setValueAtTime(0,ctx.currentTime);
   g.gain.linearRampToValueAtTime(master,ctx.currentTime+ATTACK);
-
   const oscillators = [];
   const fundamental = freq(o, temperament);
   for (const [i, relGain] of overtoneAmps.entries()) {
@@ -295,7 +313,123 @@ function press(o,on){
   document.querySelectorAll(`.key[data-offset="${o}"]`).forEach(el=>el.classList.toggle('pressed',on));
 }
 
-// --- INPUT HANDLERS ---
+// --- DYNAMIC SLIDER LOGIC ---
+let dynamicActive = false;
+let currentSliderFreq = 0;
+const dynamicNotes = new Set();
+const dynamicToggleBtn = document.getElementById('dynamicToggle');
+const dynamicSlider = document.getElementById('dynamicSlider');
+const ratioDisplay = document.getElementById('ratioDisplay');
+
+function stopDynamicNotes() {
+    dynamicNotes.forEach(freqVal => stop(freqVal));
+    dynamicNotes.clear();
+    dynamicActive = false;
+    dynamicToggleBtn.textContent = 'Play Trio';
+}
+
+function updateSliderPitch(manualFreq = null) {
+    if (manualFreq === null) {
+        const x = parseFloat(dynamicSlider.value);
+        currentSliderFreq = LOW_LIMIT * Math.pow((HIGH_LIMIT / LOW_LIMIT), x);
+    } else {
+        currentSliderFreq = manualFreq;
+    }
+
+	// Update ratio text display
+    const currentRatio = (currentSliderFreq / baseFreq).toFixed(4);
+    ratioDisplay.textContent = `Ratio: ${currentRatio}`;
+
+    if (!dynamicActive) return;
+
+    for (let note of dynamicNotes) {
+        if (note !== FIXED_C && note !== FIXED_G) {
+            stop(note);
+            dynamicNotes.delete(note);
+        }
+    }
+    start(currentSliderFreq, 'frequency');
+    dynamicNotes.add(currentSliderFreq);
+}
+
+dynamicToggleBtn.addEventListener('click', () => {
+    if (!dynamicActive) {
+        dynamicActive = true;
+        dynamicToggleBtn.textContent = 'Stop Trio';
+        start(FIXED_C, 'frequency');
+        dynamicNotes.add(FIXED_C);
+        start(FIXED_G, 'frequency');
+        dynamicNotes.add(FIXED_G);
+        updateSliderPitch();
+    } else {
+        stopDynamicNotes();
+    }
+});
+
+dynamicSlider.addEventListener('input', () => {
+    if (dynamicActive) updateSliderPitch();
+});
+
+document.getElementById('nudgeUp').addEventListener('click', () => {
+    if (dynamicActive) updateSliderPitch(currentSliderFreq * CENT_RATIO);
+});
+
+document.getElementById('nudgeDown').addEventListener('click', () => {
+    if (dynamicActive) updateSliderPitch(currentSliderFreq / CENT_RATIO);
+});
+
+function createMarkers() {
+  const container = document.getElementById('markers');
+  container.innerHTML = '';
+  const systems = [
+    { name: 'Equal', ratio: Math.pow(2, 4/12), color: '#ff4444' }, 
+    { name: 'Just/Mean', ratio: 1.250, color: '#44ff44' },            
+    { name: 'Pyth', ratio: 1.265625, color: '#ffff44' }         
+  ];
+  systems.forEach(sys => {
+    const freqE = baseFreq * sys.ratio;
+    const x = Math.log(freqE / LOW_LIMIT) / Math.log(HIGH_LIMIT / LOW_LIMIT);
+    if (x >= 0 && x <= 1) {
+        const marker = document.createElement('div');
+        marker.style.position = 'absolute';
+        marker.style.left = (x * 100) + '%';
+        marker.style.bottom = '0';
+        marker.style.width = '2px';
+        marker.style.height = '10px';
+        marker.style.background = sys.color;
+        const label = document.createElement('div');
+        label.innerText = sys.name;
+        label.style.position = 'absolute';
+        label.style.bottom = '12px';
+        label.style.left = '4px';
+        // label.style.left = '50%';
+        // label.style.transform = 'translateX(-50%)';
+		label.style.transformOrigin = 'bottom left';
+        label.style.transform = 'rotate(-45deg)';
+        label.style.fontSize = '20px';
+        label.style.color = sys.color;
+		label.style.whiteSpace = 'nowrap';
+        marker.appendChild(label);
+        container.appendChild(marker);
+    }
+  });
+}
+
+const toggleMarkersBtn = document.getElementById('toggleMarkers');
+const markersContainer = document.getElementById('markers');
+toggleMarkersBtn.addEventListener('click', () => {
+    if (markersContainer.style.display === 'none') {
+        markersContainer.style.display = 'block';
+		ratioDisplay.style.display = 'block';
+        toggleMarkersBtn.textContent = 'Hide Markers';
+    } else {
+        markersContainer.style.display = 'none';
+		ratioDisplay.style.display = 'none';
+        toggleMarkersBtn.textContent = 'Show Markers';
+    }
+});
+
+// --- KEYBOARD & GENERAL UI ---
 keyboard.addEventListener('mousedown',e=>{
   if(!e.target.classList.contains('key')) return;
   start(+e.target.dataset.offset, document.getElementById('temperament').value);
@@ -308,24 +442,20 @@ keyboard.addEventListener('mouseup',e=>{
 window.addEventListener('keydown',e=>{
   const i=keyMap.indexOf(e.key); 
   const temperament=document.getElementById('temperament').value;
-  if(0<=i && i<=12 && !keysDown.has(e.key)){ 
-    keysDown.add(e.key); 
-    start(i,temperament); 
-  }
+  if(0<=i && i<=12 && !keysDown.has(e.key)){ keysDown.add(e.key); start(i,temperament); }
   if(i>=13 && !chordsDown.has(e.key)){
     chordsDown.add(e.key);
-    const overlay = document.querySelector(".overlay");
-    overlay.style.width = '9%';
+    document.querySelector(".overlay").style.width = '9%';
     switch (i) {
-      case 13: start(-12,temperament);start(-5,temperament);start(0,temperament);start(4,temperament); overlay.style.left = '6%'; break;
-      case 14: start(-8,temperament);start(-2,temperament);start(0,temperament);start(7,temperament); overlay.style.left = '16%'; break;
-      case 15: start(-7,temperament);start(-3,temperament);start(0,temperament);start(5,temperament); overlay.style.left = '27%'; break;
-      case 16: start(-10,temperament);start(-3,temperament);start(2,temperament);start(5,temperament); overlay.style.left = '38%'; break;
-      case 17: start(-3,temperament);start(0,temperament);start(4,temperament);start(9,temperament); overlay.style.left = '48%'; break;
-      case 18: start(-6,temperament);start(-3,temperament);start(3,temperament);start(12,temperament); overlay.style.left = '59%'; break;
-      case 19: start(-5,temperament);start(2,temperament);start(11,temperament); overlay.style.left = '69.5%'; break;
-      case 20: start(-17,temperament);start(-5,temperament);start(5,temperament);start(11,temperament); overlay.style.left = '80%'; break;
-      case 21: start(-12,temperament);start(-5,temperament);start(4,temperament);start(12,temperament); overlay.style.left = '89%'; break;
+      case 13: start(-12,temperament);start(-5,temperament);start(0,temperament);start(4,temperament); break;
+      case 14: start(-8,temperament);start(-2,temperament);start(0,temperament);start(7,temperament); break;
+      case 15: start(-7,temperament);start(-3,temperament);start(0,temperament);start(5,temperament); break;
+      case 16: start(-10,temperament);start(-3,temperament);start(2,temperament);start(5,temperament); break;
+      case 17: start(-3,temperament);start(0,temperament);start(4,temperament);start(9,temperament); break;
+      case 18: start(-6,temperament);start(-3,temperament);start(3,temperament);start(12,temperament); break;
+      case 19: start(-5,temperament);start(2,temperament);start(11,temperament); break;
+      case 20: start(-17,temperament);start(-5,temperament);start(5,temperament);start(11,temperament); break;
+      case 21: start(-12,temperament);start(-5,temperament);start(4,temperament);start(12,temperament); break;
     }
   }
 });
@@ -350,32 +480,26 @@ window.addEventListener('keyup',e=>{
   }
 });
 
-// --- MIDI ---
-if (navigator.requestMIDIAccess) {
-  navigator.requestMIDIAccess().then(onMIDISuccess, () => console.log("MIDI Access Denied"));
-}
-function onMIDISuccess(midiAccess) {
-  for (let input of midiAccess.inputs.values()) input.onmidimessage = getMIDIMessage;
-}
-function getMIDIMessage(message) {
-  const cmd = message.data[0], note = message.data[1], vel = message.data[2];
-  const offset = note - 60;
-  if (cmd === 144 && vel > 0) start(offset, document.getElementById('temperament').value);
-  else if (cmd === 128 || (cmd === 144 && vel === 0)) stop(offset);
-}
-
-// --- UI INTERACTIONS ---
-
-// Frequency Box
 document.getElementById("frequencyStart").addEventListener("click", () => {
   const num = parseFloat(document.getElementById("frequencyInput").value);
-  if (!isNaN(num)) { start(num,'frequency'); frequencies.push(num); }
+  if (!isNaN(num)) { start(num,'frequency'); manualFrequencies.push(num); }
 });
 document.getElementById("frequencyStop").addEventListener("click", () => {
-  if (frequencies.length > 0) stop(frequencies.shift());
+  if (manualFrequencies.length > 0) stop(manualFrequencies.shift());
 });
 
-// Toggle Chorale
+const thirdBtn = document.getElementById('toggleThirdContainer');
+const thirdContainer = document.getElementById('thirdContainer');
+thirdBtn.addEventListener('click', () => {
+  if (thirdContainer.style.display === 'none') {
+    thirdContainer.style.display = 'block';
+    thirdBtn.textContent = 'Hide Major Third Slider';
+  } else {
+    thirdContainer.style.display = 'none';
+    thirdBtn.textContent = 'Show Major Third Slider';
+  }
+});
+
 const choraleBtn = document.getElementById('toggleChorale');
 const choraleContainer = document.getElementById('choraleContainer');
 choraleBtn.addEventListener('click', () => {
@@ -388,32 +512,24 @@ choraleBtn.addEventListener('click', () => {
   }
 });
 
-// Overtone Presets
 const presetValues = {
   default: [1, 0.5, 0.33, 0.25, 0.2, 0.17, 0.15, 0.13],
   pure: [1, 0, 0, 0, 0, 0, 0, 0],
-  clarinet: [1, 0, 0.5, 0, 0.25, 0, 0.1, 0], // Focus on odd harmonics
-  organ: [1, 0.8, 0.6, 0.8, 0.4, 0.3, 0.2, 0.5] // Rich, heavier on octaves and fifths
+  clarinet: [1, 0, 0.5, 0, 0.25, 0, 0.1, 0], 
+  organ: [1, 0.8, 0.6, 0.8, 0.4, 0.3, 0.2, 0.5], 
+  phantom: [0, 1.0, 0.75, 0.5, 0.4, 0.3, 0.2, 0.15] 
 };
 
-const presetSelect = document.getElementById('presetSelect');
-presetSelect.addEventListener('change', (e) => {
+document.getElementById('presetSelect').addEventListener('change', (e) => {
   if (e.target.value === 'custom') return;
   const vals = presetValues[e.target.value];
-  overtoneIDs.forEach((id, index) => {
-    document.getElementById(id).value = vals[index];
-  });
+  overtoneIDs.forEach((id, index) => { document.getElementById(id).value = vals[index]; });
 });
 
-// Auto-switch to "Custom" if a slider is moved manually
-overtoneIDs.forEach(id => {
-  document.getElementById(id).addEventListener('input', () => {
-    presetSelect.value = 'custom';
-  });
-});
-
-// Init
-window.onload = createKeyboard;
+window.onload = function() { 
+  createKeyboard(); 
+  createMarkers(); 
+}
 </script>
 </body>
 </html>
