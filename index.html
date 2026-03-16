@@ -142,6 +142,10 @@
       <option value="clarinet">Clarinet (Odd harmonics)</option>
       <option value="organ">Drawbar Organ</option>
       <option value="phantom">Phantom Fundamental</option>
+      <option value="vowel_ah">Vowel Ah</option>
+      <option value="vowel_oo">Vowel Oo</option>
+      <option value="vowel_ee">Vowel Ee</option>
+      <option value="bell">Bell</option>
       <option value="custom">Custom</option>
     </select>
     
@@ -517,7 +521,11 @@ const presetValues = {
   pure: [1, 0, 0, 0, 0, 0, 0, 0],
   clarinet: [1, 0, 0.5, 0, 0.25, 0, 0.1, 0], 
   organ: [1, 0.8, 0.6, 0.8, 0.4, 0.3, 0.2, 0.5], 
-  phantom: [0, 1.0, 0.75, 0.5, 0.4, 0.3, 0.2, 0.15] 
+  phantom: [0, 1.0, 0.75, 0.5, 0.4, 0.3, 0.2, 0.15],
+  vowel_ah: [0.8, 1.0, 0.9, 0.5, 0.2, 0, 0, 0],
+  vowel_oo: [1.0, 0.4, 0.1, 0, 0, 0, 0, 0],
+  vowel_ee: [1.0, 0.2, 0.1, 0.1, 0.4, 0.7, 1.0, 0.8],
+  bell: [1.0, 0.3, 0.3, 0.0, 0.0, 0.0, 0.8, 0.2],
 };
 
 document.getElementById('presetSelect').addEventListener('change', (e) => {
@@ -529,6 +537,48 @@ document.getElementById('presetSelect').addEventListener('change', (e) => {
 window.onload = function() { 
   createKeyboard(); 
   createMarkers(); 
+}
+
+// --- MIDI FUNCTIONALITY ---
+function onMIDISuccess(midiAccess) {
+  const inputs = midiAccess.inputs.values();
+  for (let input of inputs) {
+    input.onmidimessage = getMIDIMessage;
+  }
+}
+
+function onMIDIFailure() {
+  console.error("Could not access your MIDI devices.");
+}
+
+function getMIDIMessage(message) {
+  const command = message.data[0];
+  const note = message.data[1];
+  const velocity = (message.data.length > 2) ? message.data[2] : 0;
+
+  // Calculate offset relative to C4 (MIDI note 60)
+  const offset = note - 60;
+  const temperament = document.getElementById('temperament').value;
+
+  switch (command) {
+    case 144: // noteOn
+      if (velocity > 0) {
+        start(offset, temperament);
+      } else {
+        stop(offset);
+      }
+      break;
+    case 128: // noteOff
+      stop(offset);
+      break;
+  }
+}
+
+// Request MIDI access
+if (navigator.requestMIDIAccess) {
+  navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
+} else {
+  console.warn("Web MIDI API not supported in this browser.");
 }
 </script>
 </body>
