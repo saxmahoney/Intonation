@@ -14,6 +14,13 @@
   }
   
   /* Waveform Display Styles */
+  .canvas-container.hidden {
+	display: none;
+  }
+  .canvas-container.hidden + .keyboard {
+	border-top: 2px solid #444;
+	border-radius: 8px;
+  }
   .canvas-container {
     width: 100%;
     max-width: 930px;
@@ -119,23 +126,21 @@
 </head>
 <body>
 
-<div class="canvas-container">
+<div id="waveformContainer" class="canvas-container">
   <canvas id="waveformCanvas"></canvas>
 </div>
 <div id="keyboard" class="keyboard"></div>
 
 <div class="dashboard">
   <div class="panel">
-    <h3>Manual Test</h3>
-    <input type="text" id="frequencyInput" placeholder="Enter frequency (Hz)">
-    <div class="btn-group">
-      <button id="frequencyStart">Start</button>
-      <button id="frequencyStop">Stop</button>
-    </div>
+    <h3>UI Options</h3>
+    <button id="toggleChorale">Show Chorale Image</button>
+    <button id="toggleThirdContainer">Show Major Third Slider</button>
+    <button id="toggleWaveform">Hide Waveform</button>
   </div>
 
   <div class="panel">
-    <h3>Settings</h3>
+    <h3>Note Settings</h3>
     <select id="wave">
       <option value="sine">Sine Wave</option>
       <option value="triangle">Triangle Wave</option>
@@ -148,8 +153,12 @@
       <option value="meantone">Meantone Temperament</option>
       <option value="pythagorean">Pythagorean Intonation</option>
     </select>
-    <button id="toggleChorale">Show Chorale Image</button>
-    <button id="toggleThirdContainer">Show Major Third Slider</button>
+	Manual Frequency:
+    <input type="text" id="frequencyInput" placeholder="Enter frequency (Hz)">
+    <div class="btn-group">
+      <button id="frequencyStart">Start</button>
+      <button id="frequencyStop">Stop</button>
+    </div>
   </div>
 
   <div class="panel">
@@ -198,12 +207,12 @@
 
   <div class="slider-group" style="display: flex; align-items: center; gap: 15px; width: 100%;">
     <span>Eb4</span>
-    <input type="range" id="dynamicSlider" min="0" max="1" step="0.0001" value="0.5" style="flex-grow: 1;">
+    <input type="range" id="triadSlider" min="0" max="1" step="0.0001" value="0.5" style="flex-grow: 1;">
     <span>F4</span>
   </div>
   
   <div class="btn-group" style="margin-top: 15px; display: flex; gap: 10px;">
-    <button id="dynamicToggle">Play Trio</button>
+    <button id="triadToggle">Play Trio</button>
     <button id="nudgeDown">-1 Cent</button>
     <button id="nudgeUp">+1 Cent</button>
     <button id="toggleMarkers">Show Markers</button>
@@ -312,6 +321,7 @@ function start(o, temperament){
   g.gain.linearRampToValueAtTime(master,ctx.currentTime+ATTACK);
   const oscillators = [];
   const fundamental = freq(o, temperament);
+  console.log(fundamental);
   for (const [i, relGain] of overtoneAmps.entries()) {
     const osc = ctx.createOscillator();
     osc.type = document.getElementById('wave').value;
@@ -351,6 +361,8 @@ function press(o,on){
 }
 
 function draw() {
+  if (!waveformVisible) return;
+
   requestAnimationFrame(draw);
 
   // 1. Setup Canvas
@@ -366,20 +378,53 @@ function draw() {
   const lowestFreq = 130.815; // C3
   
   // We want to show exactly 2 full cycles of the lowest note
-  const totalTimeDisplayed = 2 / lowestFreq; 
+  const totalTimeDisplayed = 4 / lowestFreq; 
 
-  // 3. Draw the combined wave
-  canvasCtx.lineWidth = 3;
-  canvasCtx.strokeStyle = '#44ff44';
-  canvasCtx.beginPath();
 
   const waveType = document.getElementById('wave').value;
   const overtoneAmps = overtoneIDs.map(id => Number(document.getElementById(id).value));
+  const volSlider = document.getElementById('gainSel').value;
 
+  active.forEach((noteData, offset) => {
+    let f0 = freq(offset, document.getElementById('temperament').value);
+    if (offset > 26) {
+      f0 = offset;
+    }
+    canvasCtx.beginPath();
+    canvasCtx.lineWidth = 1;
+    canvasCtx.strokeStyle = 'rgba(68, 255, 255, 0.33)';
+    for (let x = 0; x < canvas.width; x++) {
+      const t = (x / canvas.width) * totalTimeDisplayed;
+      let ySingle = 0;
+      // sum overtones for this note
+      overtoneAmps.forEach((amp, i) => {
+        if (amp <= 0) return;
+        const f = f0 * (i + 1);
+        // Pure math-based wave generation
+        if (waveType === 'sine') {
+          ySingle += amp * Math.sin(2 * Math.PI * f * t + Math.PI/2);
+        } else if (waveType === 'square') {
+          ySingle += amp * (Math.sin(2 * Math.PI * f * t + Math.PI/2) >= 0 ? 1 : -1);
+        } else if (waveType === 'triangle') {
+          ySingle += amp * (2 / Math.PI) * Math.asin(Math.sin(2 * Math.PI * f * t + Math.PI/2));
+        } else if (waveType === 'sawtooth') {
+          ySingle += amp * (1 - 2 * ((t * f) % 1));
+        }
+      });
+      const y = (canvas.height / 2) - (ySingle * 50 * volSlider); // 50 is a scale factor
+      if (x === 0) canvasCtx.moveTo(x, y);
+      else canvasCtx.lineTo(x, y);
+    }
+    canvasCtx.stroke();
+  });
+
+  // 3. Draw the combined wave
+  canvasCtx.lineWidth = 1.5;
+  canvasCtx.strokeStyle = '#44ff44';
+  canvasCtx.beginPath();
   for (let x = 0; x < canvas.width; x++) {
     const t = (x / canvas.width) * totalTimeDisplayed;
     let ySum = 0;
-
     // Sum up every active note
     active.forEach((noteData, offset) => {
       let f0 = freq(offset, document.getElementById('temperament').value);
@@ -394,21 +439,19 @@ function draw() {
         
         // Pure math-based wave generation
         if (waveType === 'sine') {
-          ySum += amp * Math.sin(2 * Math.PI * f * t);
+          ySum += amp * Math.sin(2 * Math.PI * f * t + Math.PI/2);
         } else if (waveType === 'square') {
-          ySum += amp * (Math.sin(2 * Math.PI * f * t) >= 0 ? 1 : -1);
+          ySum += amp * (Math.sin(2 * Math.PI * f * t + Math.PI/2) >= 0 ? 1 : -1);
         } else if (waveType === 'triangle') {
-          ySum += amp * (2 / Math.PI) * Math.asin(Math.sin(2 * Math.PI * f * t));
+          ySum += amp * (2 / Math.PI) * Math.asin(Math.sin(2 * Math.PI * f * t + Math.PI/2));
         } else if (waveType === 'sawtooth') {
-          ySum += amp * (2 * (t * f - Math.floor(0.5 + t * f)));
+          ySum += amp * (1 - 2 * ((t * f) % 1));
         }
       });
     });
 
     // Normalize and Draw
-	const volSlider = document.getElementById('gainSel').value;
-	console.log(volSlider);
-    const yPos = (canvas.height / 2) - (ySum * 50 * volSlider); // 40 is a scale factor
+    const yPos = (canvas.height / 2) - (ySum * 50 * volSlider); // 50 is a scale factor
     if (x === 0) canvasCtx.moveTo(x, yPos);
     else canvasCtx.lineTo(x, yPos);
   }
@@ -416,23 +459,23 @@ function draw() {
 }
 
 // --- DYNAMIC SLIDER LOGIC ---
-let dynamicActive = false;
+let triadActive = false;
 let currentSliderFreq = 0;
-const dynamicNotes = new Set();
-const dynamicToggleBtn = document.getElementById('dynamicToggle');
-const dynamicSlider = document.getElementById('dynamicSlider');
+const triadNotes = new Set();
+const triadToggleBtn = document.getElementById('triadToggle');
+const triadSlider = document.getElementById('triadSlider');
 const ratioDisplay = document.getElementById('ratioDisplay');
 
-function stopDynamicNotes() {
-    dynamicNotes.forEach(freqVal => stop(freqVal));
-    dynamicNotes.clear();
-    dynamicActive = false;
-    dynamicToggleBtn.textContent = 'Play Trio';
+function stopTriadNotes() {
+    triadNotes.forEach(freqVal => stop(freqVal));
+    triadNotes.clear();
+    triadActive = false;
+    triadToggleBtn.textContent = 'Play Trio';
 }
 
 function updateSliderPitch(manualFreq = null) {
     if (manualFreq === null) {
-        const x = parseFloat(dynamicSlider.value);
+        const x = parseFloat(triadSlider.value);
         currentSliderFreq = LOW_LIMIT * Math.pow((HIGH_LIMIT / LOW_LIMIT), x);
     } else {
         currentSliderFreq = manualFreq;
@@ -442,42 +485,42 @@ function updateSliderPitch(manualFreq = null) {
     const currentRatio = (currentSliderFreq / baseFreq).toFixed(4);
     ratioDisplay.textContent = `Ratio: ${currentRatio}`;
 
-    if (!dynamicActive) return;
+    if (!triadActive) return;
 
-    for (let note of dynamicNotes) {
+    for (let note of triadNotes) {
         if (note !== FIXED_C && note !== FIXED_G) {
             stop(note);
-            dynamicNotes.delete(note);
+            triadNotes.delete(note);
         }
     }
     start(currentSliderFreq, 'frequency');
-    dynamicNotes.add(currentSliderFreq);
+    triadNotes.add(currentSliderFreq);
 }
 
-dynamicToggleBtn.addEventListener('click', () => {
-    if (!dynamicActive) {
-        dynamicActive = true;
-        dynamicToggleBtn.textContent = 'Stop Trio';
+triadToggleBtn.addEventListener('click', () => {
+    if (!triadActive) {
+        triadActive = true;
+        triadToggleBtn.textContent = 'Stop Trio';
         start(FIXED_C, 'frequency');
-        dynamicNotes.add(FIXED_C);
+        triadNotes.add(FIXED_C);
         start(FIXED_G, 'frequency');
-        dynamicNotes.add(FIXED_G);
+        triadNotes.add(FIXED_G);
         updateSliderPitch();
     } else {
-        stopDynamicNotes();
+        stopTriadNotes();
     }
 });
 
-dynamicSlider.addEventListener('input', () => {
-    if (dynamicActive) updateSliderPitch();
+triadSlider.addEventListener('input', () => {
+    if (triadActive) updateSliderPitch();
 });
 
 document.getElementById('nudgeUp').addEventListener('click', () => {
-    if (dynamicActive) updateSliderPitch(currentSliderFreq * CENT_RATIO);
+    if (triadActive) updateSliderPitch(currentSliderFreq * CENT_RATIO);
 });
 
 document.getElementById('nudgeDown').addEventListener('click', () => {
-    if (dynamicActive) updateSliderPitch(currentSliderFreq / CENT_RATIO);
+    if (triadActive) updateSliderPitch(currentSliderFreq / CENT_RATIO);
 });
 
 function createMarkers() {
@@ -529,6 +572,23 @@ toggleMarkersBtn.addEventListener('click', () => {
     }
 });
 
+const toggleWaveformBtn = document.getElementById('toggleWaveform');
+const waveformContainer = document.getElementById('waveformContainer');
+let waveformVisible = true;
+
+toggleWaveformBtn.addEventListener('click', () => {
+	waveformVisible = !waveformVisible;
+  if (waveformVisible) {
+    waveformContainer.classList.remove('hidden');
+    toggleWaveformBtn.textContent = 'Hide Waveform';
+    // Restart the draw loop if it was stopped
+    draw(); 
+  } else {
+    waveformContainer.classList.add('hidden');
+    toggleWaveformBtn.textContent = 'Show Waveform';
+  }
+});
+
 // --- KEYBOARD & GENERAL UI ---
 keyboard.addEventListener('mousedown',e=>{
   if(!e.target.classList.contains('key')) return;
@@ -545,18 +605,18 @@ window.addEventListener('keydown',e=>{
   if(0<=i && i<=12 && !keysDown.has(e.key)){ keysDown.add(e.key); start(i,temperament); }
   if(i>=13 && !chordsDown.has(e.key)){
     chordsDown.add(e.key);
-    const choraleOverlay = document.querySelector(".overlay");
-    if(choraleOverlay) choraleOverlay.style.width = '9%';
+    const overlay = document.querySelector(".overlay");
+	overlay.style.width = '9%';
     switch (i) {
-      case 13: start(-12,temperament);start(-5,temperament);start(0,temperament);start(4,temperament); break;
-      case 14: start(-8,temperament);start(-2,temperament);start(0,temperament);start(7,temperament); break;
-      case 15: start(-7,temperament);start(-3,temperament);start(0,temperament);start(5,temperament); break;
-      case 16: start(-10,temperament);start(-3,temperament);start(2,temperament);start(5,temperament); break;
-      case 17: start(-3,temperament);start(0,temperament);start(4,temperament);start(9,temperament); break;
-      case 18: start(-6,temperament);start(-3,temperament);start(3,temperament);start(12,temperament); break;
-      case 19: start(-5,temperament);start(2,temperament);start(11,temperament); break;
-      case 20: start(-17,temperament);start(-5,temperament);start(5,temperament);start(11,temperament); break;
-      case 21: start(-12,temperament);start(-5,temperament);start(4,temperament);start(12,temperament); break;
+      case 13: start(-12,temperament);start(-5,temperament);start(0,temperament);start(4,temperament); overlay.style.left = '6%'; break;
+      case 14: start(-8,temperament);start(-2,temperament);start(0,temperament);start(7,temperament); overlay.style.left = '16%'; break;
+      case 15: start(-7,temperament);start(-3,temperament);start(0,temperament);start(5,temperament); overlay.style.left = '27%'; break;
+      case 16: start(-10,temperament);start(-3,temperament);start(2,temperament);start(5,temperament); overlay.style.left = '38%'; break;
+      case 17: start(-3,temperament);start(0,temperament);start(4,temperament);start(9,temperament); overlay.style.left = '48%'; break;
+      case 18: start(-6,temperament);start(-3,temperament);start(3,temperament);start(12,temperament); overlay.style.left = '59%'; break;
+      case 19: start(-5,temperament);start(2,temperament);start(11,temperament); overlay.style.left = '69.5%'; break;
+      case 20: start(-17,temperament);start(-5,temperament);start(5,temperament);start(11,temperament); overlay.style.left = '80%'; break;
+      case 21: start(-12,temperament);start(-5,temperament);start(4,temperament);start(12,temperament); overlay.style.left = '89%'; break;
     }
   }
 });
