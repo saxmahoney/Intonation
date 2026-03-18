@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Intonation and Overtones</title>
+<title>Intonation, Overtones & Waveform</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -13,6 +13,32 @@
     padding: 30px 20px;
   }
   
+  /* Waveform Display Styles */
+  .canvas-container {
+    width: 100%;
+    max-width: 930px;
+    height: 150px;
+    background: #111;
+    border: 2px solid #444;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    display: flex;
+  }
+  #waveformCanvas {
+    width: 100%;
+    height: 100%;
+  }
+
+  .keyboard { 
+    position:relative; 
+    display:flex; 
+    align-items: flex-start;
+    background: #000;
+    margin-bottom: 30px;
+    border: 2px solid #444;
+    border-radius: 0 0 8px 8px;
+  }
+
   .dashboard {
     display: flex;
     justify-content: space-between;
@@ -51,13 +77,6 @@
     row-gap: 6px;
   }
 
-  .keyboard { 
-    position:relative; 
-    display:flex; 
-    align-items: flex-start;
-    background: #000;
-    margin-bottom: 30px;
-  }
   .key.white {
     width:60px; height:220px;
     background:#fff; border:0.5px solid #000; border-radius:0 0 6px 6px;
@@ -100,6 +119,9 @@
 </head>
 <body>
 
+<div class="canvas-container">
+  <canvas id="waveformCanvas"></canvas>
+</div>
 <div id="keyboard" class="keyboard"></div>
 
 <div class="dashboard">
@@ -191,6 +213,16 @@
 <script>
 const AudioContext = window.AudioContext||window.webkitAudioContext;
 const ctx = new AudioContext();
+
+// --- ANALYSER SETUP ---
+const canvas = document.getElementById('waveformCanvas');
+const canvasCtx = canvas.getContext('2d');
+const analyser = ctx.createAnalyser();
+analyser.fftSize = 2048;
+const bufferLength = analyser.frequencyBinCount;
+const dataArray = new Uint8Array(bufferLength);
+analyser.connect(ctx.destination);
+
 const baseFreq = 261.63; // C4
 const keyMap = ['z','s','x','d','c','v','g','b','h','n','j','m',',','q','w','e','r','t','y','u','i','o'];
 const noteNames = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
@@ -290,7 +322,8 @@ function start(o, temperament){
     osc.start();
     oscillators.push({osc,og});
   }
-  g.connect(ctx.destination);
+  // Connect to Analyser instead of destination directly
+  g.connect(analyser);
   active.set(o,{oscillators,g});
   press(o,true);
 }
@@ -315,6 +348,71 @@ function stop(o) {
 
 function press(o,on){
   document.querySelectorAll(`.key[data-offset="${o}"]`).forEach(el=>el.classList.toggle('pressed',on));
+}
+
+function draw() {
+  requestAnimationFrame(draw);
+
+  // 1. Setup Canvas
+  if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+  }
+  canvasCtx.fillStyle = '#111';
+  canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (active.size === 0) return;
+
+  const lowestFreq = 130.815; // C3
+  
+  // We want to show exactly 2 full cycles of the lowest note
+  const totalTimeDisplayed = 2 / lowestFreq; 
+
+  // 3. Draw the combined wave
+  canvasCtx.lineWidth = 3;
+  canvasCtx.strokeStyle = '#44ff44';
+  canvasCtx.beginPath();
+
+  const waveType = document.getElementById('wave').value;
+  const overtoneAmps = overtoneIDs.map(id => Number(document.getElementById(id).value));
+
+  for (let x = 0; x < canvas.width; x++) {
+    const t = (x / canvas.width) * totalTimeDisplayed;
+    let ySum = 0;
+
+    // Sum up every active note
+    active.forEach((noteData, offset) => {
+      let f0 = freq(offset, document.getElementById('temperament').value);
+	  if (offset > 26) {
+		f0 = offset;
+	  }
+      
+      // Sum up every overtone for this note
+      overtoneAmps.forEach((amp, i) => {
+        if (amp <= 0) return;
+        const f = f0 * (i + 1);
+        
+        // Pure math-based wave generation
+        if (waveType === 'sine') {
+          ySum += amp * Math.sin(2 * Math.PI * f * t);
+        } else if (waveType === 'square') {
+          ySum += amp * (Math.sin(2 * Math.PI * f * t) >= 0 ? 1 : -1);
+        } else if (waveType === 'triangle') {
+          ySum += amp * (2 / Math.PI) * Math.asin(Math.sin(2 * Math.PI * f * t));
+        } else if (waveType === 'sawtooth') {
+          ySum += amp * (2 * (t * f - Math.floor(0.5 + t * f)));
+        }
+      });
+    });
+
+    // Normalize and Draw
+	const volSlider = document.getElementById('gainSel').value;
+	console.log(volSlider);
+    const yPos = (canvas.height / 2) - (ySum * 50 * volSlider); // 40 is a scale factor
+    if (x === 0) canvasCtx.moveTo(x, yPos);
+    else canvasCtx.lineTo(x, yPos);
+  }
+  canvasCtx.stroke();
 }
 
 // --- DYNAMIC SLIDER LOGIC ---
@@ -406,8 +504,6 @@ function createMarkers() {
         label.style.position = 'absolute';
         label.style.bottom = '12px';
         label.style.left = '4px';
-        // label.style.left = '50%';
-        // label.style.transform = 'translateX(-50%)';
 		label.style.transformOrigin = 'bottom left';
         label.style.transform = 'rotate(-45deg)';
         label.style.fontSize = '20px';
@@ -449,7 +545,8 @@ window.addEventListener('keydown',e=>{
   if(0<=i && i<=12 && !keysDown.has(e.key)){ keysDown.add(e.key); start(i,temperament); }
   if(i>=13 && !chordsDown.has(e.key)){
     chordsDown.add(e.key);
-    document.querySelector(".overlay").style.width = '9%';
+    const choraleOverlay = document.querySelector(".overlay");
+    if(choraleOverlay) choraleOverlay.style.width = '9%';
     switch (i) {
       case 13: start(-12,temperament);start(-5,temperament);start(0,temperament);start(4,temperament); break;
       case 14: start(-8,temperament);start(-2,temperament);start(0,temperament);start(7,temperament); break;
@@ -468,7 +565,8 @@ window.addEventListener('keyup',e=>{
   const i=keyMap.indexOf(e.key); 
   if(0<=i && i<=12){ keysDown.delete(e.key); stop(i); }
   if(i>=13){
-    document.querySelector(".overlay").style.width = '0%';
+    const choraleOverlay = document.querySelector(".overlay");
+    if(choraleOverlay) choraleOverlay.style.width = '0%';
     chordsDown.delete(e.key);
     switch (i) {
       case 13: stop(-12);stop(-5);stop(0);stop(4); break;
@@ -537,6 +635,7 @@ document.getElementById('presetSelect').addEventListener('change', (e) => {
 window.onload = function() { 
   createKeyboard(); 
   createMarkers(); 
+  draw(); // Kick off waveform animation
 }
 
 // --- MIDI FUNCTIONALITY ---
@@ -547,38 +646,21 @@ function onMIDISuccess(midiAccess) {
   }
 }
 
-function onMIDIFailure() {
-  console.error("Could not access your MIDI devices.");
-}
-
 function getMIDIMessage(message) {
   const command = message.data[0];
   const note = message.data[1];
   const velocity = (message.data.length > 2) ? message.data[2] : 0;
-
-  // Calculate offset relative to C4 (MIDI note 60)
   const offset = note - 60;
   const temperament = document.getElementById('temperament').value;
 
   switch (command) {
-    case 144: // noteOn
-      if (velocity > 0) {
-        start(offset, temperament);
-      } else {
-        stop(offset);
-      }
-      break;
-    case 128: // noteOff
-      stop(offset);
-      break;
+    case 144: if (velocity > 0) start(offset, temperament); else stop(offset); break;
+    case 128: stop(offset); break;
   }
 }
 
-// Request MIDI access
 if (navigator.requestMIDIAccess) {
-  navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
-} else {
-  console.warn("Web MIDI API not supported in this browser.");
+  navigator.requestMIDIAccess().then(onMIDISuccess, () => console.error("MIDI access failed."));
 }
 </script>
 </body>
